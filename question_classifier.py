@@ -7,6 +7,9 @@
 import os
 import ahocorasick
 
+import config
+from retrieval.entity_linker import EntityLinker
+
 class QuestionClassifier:
     def __init__(self):
         cur_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +36,7 @@ class QuestionClassifier:
         self.region_tree = self.build_actree(list(self.region_words))
         # 构建词典
         self.wdtype_dict = self.build_wdtype_dict()
+        self.entity_linker = EntityLinker(self.wdtype_dict)
         # 问句疑问词
         self.symptom_qwds = ['症状', '表征', '现象', '症候', '表现']
         self.cause_qwds = ['原因','成因', '为什么', '怎么会', '怎样才', '咋样才', '怎样会', '如何会', '为啥', '为何', '如何才会', '怎么才会', '会导致', '会造成']
@@ -197,6 +201,14 @@ class QuestionClassifier:
 
     '''问句过滤'''
     def check_medical(self, question):
+        ac_result = self._check_medical_ac(question)
+        if ac_result:
+            return ac_result
+        if config.ES_ENABLED and self.entity_linker.available:
+            return self.entity_linker.link(question)
+        return {}
+
+    def _check_medical_ac(self, question):
         region_wds = []
         for i in self.region_tree.iter(question):
             wd = i[1][1]
@@ -207,7 +219,7 @@ class QuestionClassifier:
                 if wd1 in wd2 and wd1 != wd2:
                     stop_wds.append(wd1)
         final_wds = [i for i in region_wds if i not in stop_wds]
-        final_dict = {i:self.wdtype_dict.get(i) for i in final_wds}
+        final_dict = {i: self.wdtype_dict.get(i) for i in final_wds}
 
         return final_dict
 

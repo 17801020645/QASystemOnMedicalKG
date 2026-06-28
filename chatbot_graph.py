@@ -10,9 +10,13 @@ except ImportError:
 import logging
 import sys
 
+from graph.subgraph import SubgraphFetcher
 from question_classifier import QuestionClassifier
 from question_parser import QuestionPaser
 from answer_search import AnswerSearcher
+from rag.generator import AnswerGenerator
+from rag.retriever import DocRetriever
+from router import HELP_ANSWER, QueryRouter, RouteType
 
 logger = logging.getLogger(__name__)
 
@@ -37,18 +41,67 @@ class ChatBotGraph:
         self.classifier = QuestionClassifier()
         self.parser = QuestionPaser()
         self.searcher = AnswerSearcher()
+        self.router = QueryRouter()
+        self.doc_retriever = DocRetriever()
+        self.generator = AnswerGenerator()
+        self.subgraph = SubgraphFetcher()
 
     def chat_main(self, sent):
-        res_classify = self.classifier.classify(sent)
-        if not res_classify:
-            logger.debug('未识别到医疗实体: %s', sent)
-            return DEFAULT_ANSWER
+        classify_result = self.classifier.classify(sent)
+        route = self.router.route(sent, classify_result)
+
+        if route == RouteType.META:
+            return HELP_ANSWER
+
+        if route == RouteType.STRUCTURED:
+            return self._answer_structured(classify_result)
+
+        open_answer = self._answer_open(sent, classify_result)
+        if open_answer:
+            return open_answer
+
+        logger.debug('未识别到可回答内容: %s', sent)
+        return DEFAULT_ANSWER
+
+    def _answer_structured(self, res_classify):
         res_sql = self.parser.parser_main(res_classify)
         final_answers = self.searcher.search_main(res_sql)
         if not final_answers:
             logger.debug('未查到答案: types=%s', res_classify.get('question_types'))
             return DEFAULT_ANSWER
         return '\n'.join(final_answers)
+
+    def _answer_open(self, question, classify_result):
+        args = classify_result.get('args', {})
+        disease_name = None
+        graph_context = ''
+
+        for name, types in args.items():
+            if 'disease' in types:
+                disease_name = name
+                break
+
+        if args:
+            entity_name, entity_types = next(iter(args.items()))
+            graph_context = self.subgraph.fetch(entity_name, entity_types)
+
+        chunks = self.doc_retriever.search(question, disease_name=disease_name)
+        context = self.doc_retriever.format_context(chunks)
+
+        if self.generator.available:
+            answer = self.generator.generate(question, context, graph_context)
+            if answer:
+                return answer
+
+        if context or graph_context:
+            parts = []
+            if graph_context:
+                parts.append(graph_context)
+            if context:
+                parts.append(context)
+            return '\n\n'.join(parts)
+
+        return ''
 
 
 if __name__ == '__main__':
