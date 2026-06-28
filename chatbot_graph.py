@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
+# 启用终端行编辑（退格、方向键、Ctrl+U 清空等）
+try:
+    import readline  # noqa: F401
+except ImportError:
+    pass
+
 import logging
+import sys
 
 from question_classifier import QuestionClassifier
 from question_parser import QuestionPaser
@@ -13,6 +20,16 @@ DEFAULT_ANSWER = (
     '您好，我是小勇医药智能助理，希望可以帮到您。'
     '如果没答上来，可联系https://liuhuanyong.github.io/。祝您身体棒棒！'
 )
+
+PROMPT = '用户: '
+
+
+def read_question() -> str:
+    """读取用户输入；非交互终端时回退到标准 input。"""
+    if sys.stdin.isatty():
+        return input(PROMPT)
+    print(PROMPT, end='', flush=True)
+    return sys.stdin.readline().rstrip('\n')
 
 
 class ChatBotGraph:
@@ -37,9 +54,16 @@ class ChatBotGraph:
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     handler = ChatBotGraph()
+    if sys.stdin.isatty():
+        print('医疗问答已启动。输入医疗问题后按回车；')
+        print('编辑：退格/方向键 | Ctrl+U 清空整行 | Ctrl+C 退出')
+        print('中文输入法：请先确认选词（空格/回车）再按退格修改')
+        print('-' * 50)
     while True:
         try:
-            question = input('用户:')
+            question = read_question()
+            if not question.strip():
+                continue
             answer = handler.chat_main(question)
             print('小勇:', answer)
         except (KeyboardInterrupt, EOFError):
