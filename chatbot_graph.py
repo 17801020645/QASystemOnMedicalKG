@@ -81,7 +81,11 @@ class ChatBotGraph:
                 disease_name = name
                 break
 
-        if args:
+        # 口语查病：优先用完整问句做文档检索，症状子图信息噪声较大
+        symptom_only = args and all('symptom' in types for types in args.values())
+        colloquial = self.router._should_use_rag_for_symptom_inquiry(question, classify_result)
+
+        if args and not (symptom_only and colloquial):
             entity_name, entity_types = next(iter(args.items()))
             graph_context = self.subgraph.fetch(entity_name, entity_types)
 
